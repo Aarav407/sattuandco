@@ -67,6 +67,7 @@ body{background:var(--sand);font-family:'Inter',sans-serif;color:var(--ink)}
 .pin-field{margin-bottom:12px}
 .pin-lbl{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
 .pin-input{width:100%;padding:10px 14px;border:1px solid rgba(196,119,58,0.25);border-radius:10px;font-size:15px;font-family:'Inter',sans-serif;letter-spacing:1px}
+.pin-input.textarea{min-height:64px;resize:vertical;letter-spacing:normal;line-height:1.4}
 .pin-input:focus{outline:none;border-color:var(--clay)}
 .delivery-info{font-size:12px;margin-bottom:10px;min-height:16px;line-height:1.4}
 .delivery-info.ok{color:var(--clay-dark)}
@@ -116,6 +117,14 @@ body{background:var(--sand);font-family:'Inter',sans-serif;color:var(--ink)}
       <input class="pin-input" id="delPin" type="text" inputmode="numeric" maxlength="6" placeholder="e.g. 700046" oninput="onPinInput()"/>
     </div>
     <div class="delivery-info" id="deliveryInfo"></div>
+    <div class="pin-field">
+      <label class="pin-lbl" for="delPhone">Phone number</label>
+      <input class="pin-input" id="delPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" oninput="onDeliveryDetailsInput()"/>
+    </div>
+    <div class="pin-field">
+      <label class="pin-lbl" for="delAddress">Delivery address</label>
+      <textarea class="pin-input textarea" id="delAddress" rows="2" placeholder="House no., street, landmark…" oninput="onDeliveryDetailsInput()"></textarea>
+    </div>
     <div class="total-row sub-row">
       <span class="total-lbl">Subtotal</span>
       <span id="subAmt">₹0</span>
@@ -179,6 +188,24 @@ function getDeliveryFee(km) {
   return { fee: 0, deliverable: false };
 }
 
+function onDeliveryDetailsInput() {
+  const phoneEl = document.getElementById('delPhone');
+  phoneEl.value = phoneEl.value.replace(/\D/g, '').slice(0, 10);
+  updateTotals();
+}
+
+function getPhone() {
+  return document.getElementById('delPhone').value.replace(/\D/g, '');
+}
+
+function getAddress() {
+  return document.getElementById('delAddress').value.trim();
+}
+
+function isDeliveryDetailsValid() {
+  return getPhone().length === 10 && getAddress().length >= 10;
+}
+
 function onPinInput() {
   const el = document.getElementById('delPin');
   const pin = el.value.replace(/\D/g, '').slice(0, 6);
@@ -234,6 +261,14 @@ function updateTotals() {
     document.getElementById('deliveryAmt').textContent = '₹' + deliveryFee;
     info.className = 'delivery-info ok';
     info.textContent = `${delivery.distance.toFixed(1)} km from us — delivery ₹${deliveryFee}`;
+    if (!isDeliveryDetailsValid()) {
+      canOrder = false;
+      if (!getPhone().length || getPhone().length < 10) {
+        info.textContent += ' — enter your phone number';
+      } else if (!getAddress().length) {
+        info.textContent += ' — enter your delivery address';
+      }
+    }
   } else if (delivery.status === 'undeliverable') {
     info.className = 'delivery-info err';
     info.textContent = `Sorry, we don't deliver to PIN ${delivery.pin} (${delivery.distance.toFixed(1)} km — beyond 15 km)`;
@@ -316,12 +351,17 @@ function checkout(){
   const items=Object.values(basket);
   if(!items.length){showToast('Your basket is empty');return;}
   if(delivery.status!=='ok'){showToast('Please enter a valid deliverable PIN code');return;}
+  const phone=getPhone();
+  const address=getAddress();
+  if(phone.length!==10){showToast('Please enter a valid 10-digit phone number');return;}
+  if(address.length<10){showToast('Please enter your full delivery address');return;}
   const subtotal=items.reduce((s,i)=>s+i.price*i.qty,0);
   const total=subtotal+delivery.fee;
   const lines=items.map(i=>`• ${i.qty}x ${i.name} — ₹${i.price*i.qty}`).join('\n');
-  const msg=`🛒 *New Order — Sattu & Co.*\n\n${lines}\n\nSubtotal: ₹${subtotal}\nDelivery (PIN ${delivery.pin}, ${delivery.distance.toFixed(1)} km): ₹${delivery.fee}\n*Total: ₹${total}*\n\nPlease confirm my order!`;
+  const msg=`🛒 *New Order — Sattu & Co.*\n\n${lines}\n\n📍 *Delivery details*\nPIN: ${delivery.pin}\nAddress: ${address}\nPhone: ${phone}\n\nSubtotal: ₹${subtotal}\nDelivery (${delivery.distance.toFixed(1)} km): ₹${delivery.fee}\n*Total: ₹${total}*\n\nPlease confirm my order!`;
   window.open('https://wa.me/'+WA+'?text='+encodeURIComponent(msg),'_blank');
 }
+updateTotals();
 </script>
 </body>
 </html>
