@@ -64,6 +64,19 @@ body{background:var(--sand);font-family:'Inter',sans-serif;color:var(--ink)}
 .total-amt{font-family:'Playfair Display',serif;font-size:22px;color:var(--clay-dark)}
 .wa-btn{width:100%;background:#25D366;color:#fff;border:none;padding:13px;border-radius:50px;font-size:15px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none}
 .wa-btn:hover{background:#1ebe5d}
+.pin-field{margin-bottom:12px}
+.pin-lbl{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+.pin-input{width:100%;padding:10px 14px;border:1px solid rgba(196,119,58,0.25);border-radius:10px;font-size:15px;font-family:'Inter',sans-serif;letter-spacing:1px}
+.pin-input.textarea{min-height:64px;resize:vertical;letter-spacing:normal;line-height:1.4}
+.pin-input:focus{outline:none;border-color:var(--clay)}
+.delivery-info{font-size:12px;margin-bottom:10px;min-height:16px;line-height:1.4}
+.delivery-info.ok{color:var(--clay-dark)}
+.delivery-info.warn{color:#b45309}
+.delivery-info.err{color:#c0392b}
+.sub-row{margin-bottom:6px}
+.sub-row .total-lbl,.sub-row span{font-size:13px}
+.wa-btn:disabled{opacity:0.45;cursor:not-allowed}
+.wa-btn:disabled:hover{background:#25D366}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--clay-dark);color:#fff;padding:9px 20px;border-radius:50px;font-size:13px;z-index:300;transition:transform 0.25s ease;pointer-events:none}
 .toast.show{transform:translateX(-50%) translateY(0)}
 </style>
@@ -99,11 +112,32 @@ body{background:var(--sand);font-family:'Inter',sans-serif;color:var(--ink)}
     <div class="empty"><div class="empty-icon">🛒</div>Your basket is empty</div>
   </div>
   <div class="panel-foot">
+    <div class="pin-field">
+      <label class="pin-lbl" for="delPin">Delivery PIN code</label>
+      <input class="pin-input" id="delPin" type="text" inputmode="numeric" maxlength="6" placeholder="e.g. 700046" oninput="onPinInput()"/>
+    </div>
+    <div class="delivery-info" id="deliveryInfo"></div>
+    <div class="pin-field">
+      <label class="pin-lbl" for="delPhone">Phone number</label>
+      <input class="pin-input" id="delPhone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" oninput="onDeliveryDetailsInput()"/>
+    </div>
+    <div class="pin-field">
+      <label class="pin-lbl" for="delAddress">Delivery address</label>
+      <textarea class="pin-input textarea" id="delAddress" rows="2" placeholder="House no., street, landmark…" oninput="onDeliveryDetailsInput()"></textarea>
+    </div>
+    <div class="total-row sub-row">
+      <span class="total-lbl">Subtotal</span>
+      <span id="subAmt">₹0</span>
+    </div>
+    <div class="total-row sub-row" id="deliveryRow" style="display:none">
+      <span class="total-lbl">Delivery</span>
+      <span id="deliveryAmt">—</span>
+    </div>
     <div class="total-row">
       <span class="total-lbl">Total</span>
       <span class="total-amt" id="totalAmt">₹0</span>
     </div>
-    <button class="wa-btn" onclick="checkout()">
+    <button class="wa-btn" id="checkoutBtn" onclick="checkout()" disabled>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.117.549 4.099 1.508 5.82L.057 23.25a.75.75 0 00.918.919l5.44-1.453A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.885 0-3.65-.51-5.16-1.4l-.36-.214-3.733.997.999-3.726-.232-.374A9.945 9.945 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
       Order on WhatsApp
     </button>
@@ -127,7 +161,137 @@ const PRODUCTS = [
   {id:6, name:'Premium Gift Box', emoji:'🎁', desc:'A curated selection in a handcrafted jute box.', price:480},
 ];
 
+const STORE_PIN = '700046';
+const STORE_COORDS = { lat: 22.5425164, lon: 88.3836342 };
 let basket = {};
+let delivery = { status: 'idle', fee: 0, distance: null, pin: '' };
+let pinTimer;
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, p = Math.PI / 180;
+  const a = Math.sin((lat2 - lat1) * p / 2) ** 2 + Math.cos(lat1 * p) * Math.cos(lat2 * p) * Math.sin((lon2 - lon1) * p / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+async function geocodePin(pin) {
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${pin}&country=India&format=json&limit=1`, {
+    headers: { 'User-Agent': 'SattuAndCo/1.0' }
+  });
+  const data = await res.json();
+  if (!data.length) return null;
+  return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+}
+
+function getDeliveryFee(km) {
+  if (km <= 10) return { fee: 150, deliverable: true };
+  if (km <= 15) return { fee: 200, deliverable: true };
+  return { fee: 0, deliverable: false };
+}
+
+function onDeliveryDetailsInput() {
+  const phoneEl = document.getElementById('delPhone');
+  phoneEl.value = phoneEl.value.replace(/\D/g, '').slice(0, 10);
+  updateTotals();
+}
+
+function getPhone() {
+  return document.getElementById('delPhone').value.replace(/\D/g, '');
+}
+
+function getAddress() {
+  return document.getElementById('delAddress').value.trim();
+}
+
+function isDeliveryDetailsValid() {
+  return getPhone().length === 10 && getAddress().length >= 10;
+}
+
+function onPinInput() {
+  const el = document.getElementById('delPin');
+  const pin = el.value.replace(/\D/g, '').slice(0, 6);
+  el.value = pin;
+  clearTimeout(pinTimer);
+  if (pin.length < 6) {
+    delivery = { status: 'idle', fee: 0, distance: null, pin: '' };
+    updateTotals();
+    return;
+  }
+  delivery = { status: 'loading', fee: 0, distance: null, pin };
+  updateTotals();
+  pinTimer = setTimeout(() => calcDelivery(pin), 400);
+}
+
+async function calcDelivery(pin) {
+  if (delivery.pin !== pin) return;
+  try {
+    const coords = await geocodePin(pin);
+    if (delivery.pin !== pin) return;
+    if (!coords) {
+      delivery = { status: 'invalid', fee: 0, distance: null, pin };
+    } else {
+      const km = haversineKm(STORE_COORDS.lat, STORE_COORDS.lon, coords.lat, coords.lon);
+      const { fee, deliverable } = getDeliveryFee(km);
+      delivery = { status: deliverable ? 'ok' : 'undeliverable', fee, distance: km, pin };
+    }
+  } catch {
+    if (delivery.pin === pin) delivery = { status: 'error', fee: 0, distance: null, pin };
+  }
+  updateTotals();
+}
+
+function updateTotals() {
+  const items = Object.values(basket);
+  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
+  const info = document.getElementById('deliveryInfo');
+  const delRow = document.getElementById('deliveryRow');
+  const btn = document.getElementById('checkoutBtn');
+  document.getElementById('subAmt').textContent = '₹' + subtotal;
+
+  let deliveryFee = 0;
+  let canOrder = items.length > 0;
+  info.className = 'delivery-info';
+  delRow.style.display = 'none';
+
+  if (delivery.status === 'loading') {
+    info.textContent = 'Calculating delivery…';
+    canOrder = false;
+  } else if (delivery.status === 'ok') {
+    deliveryFee = delivery.fee;
+    delRow.style.display = 'flex';
+    document.getElementById('deliveryAmt').textContent = '₹' + deliveryFee;
+    info.className = 'delivery-info ok';
+    info.textContent = `${delivery.distance.toFixed(1)} km from us — delivery ₹${deliveryFee}`;
+    if (!isDeliveryDetailsValid()) {
+      canOrder = false;
+      if (!getPhone().length || getPhone().length < 10) {
+        info.textContent += ' — enter your phone number';
+      } else if (!getAddress().length) {
+        info.textContent += ' — enter your delivery address';
+      }
+    }
+  } else if (delivery.status === 'undeliverable') {
+    info.className = 'delivery-info err';
+    info.textContent = `Sorry, we don't deliver to PIN ${delivery.pin} (${delivery.distance.toFixed(1)} km — beyond 15 km)`;
+    canOrder = false;
+  } else if (delivery.status === 'invalid') {
+    info.className = 'delivery-info err';
+    info.textContent = 'Invalid PIN code. Please check and try again.';
+    canOrder = false;
+  } else if (delivery.status === 'error') {
+    info.className = 'delivery-info err';
+    info.textContent = 'Could not check delivery. Please try again.';
+    canOrder = false;
+  } else if (items.length) {
+    info.textContent = 'Enter your 6-digit delivery PIN to see charges.';
+    canOrder = false;
+  } else {
+    info.textContent = '';
+    canOrder = false;
+  }
+
+  document.getElementById('totalAmt').textContent = '₹' + (subtotal + deliveryFee);
+  btn.disabled = !canOrder;
+}
 
 document.getElementById('grid').innerHTML = PRODUCTS.map(p=>`
   <div class="card">
@@ -162,12 +326,10 @@ function chQty(id,d){
 
 function updateUI(){
   const items=Object.values(basket);
-  const total=items.reduce((s,i)=>s+i.price*i.qty,0);
   const count=items.reduce((s,i)=>s+i.qty,0);
   document.getElementById('bCount').textContent=count;
-  document.getElementById('totalAmt').textContent='₹'+total;
   const el=document.getElementById('panelItems');
-  if(!items.length){el.innerHTML='<div class="empty"><div class="empty-icon">🛒</div>Your basket is empty</div>';return;}
+  if(!items.length){el.innerHTML='<div class="empty"><div class="empty-icon">🛒</div>Your basket is empty</div>';updateTotals();return;}
   el.innerHTML=items.map(i=>`
     <div class="b-item">
       ${i.img?`<img class="b-thumb" src="${i.img}" alt="${i.name}"/>`:`<div class="b-ph">${i.emoji}</div>`}
@@ -178,6 +340,7 @@ function updateUI(){
         <button class="qty-btn" onclick="chQty(${i.id},1)">+</button>
       </div>
     </div>`).join('');
+  updateTotals();
 }
 
 function openPanel(){document.getElementById('panel').classList.add('open');document.getElementById('overlay').classList.add('open');}
@@ -187,11 +350,18 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 function checkout(){
   const items=Object.values(basket);
   if(!items.length){showToast('Your basket is empty');return;}
-  const total=items.reduce((s,i)=>s+i.price*i.qty,0);
+  if(delivery.status!=='ok'){showToast('Please enter a valid deliverable PIN code');return;}
+  const phone=getPhone();
+  const address=getAddress();
+  if(phone.length!==10){showToast('Please enter a valid 10-digit phone number');return;}
+  if(address.length<10){showToast('Please enter your full delivery address');return;}
+  const subtotal=items.reduce((s,i)=>s+i.price*i.qty,0);
+  const total=subtotal+delivery.fee;
   const lines=items.map(i=>`• ${i.qty}x ${i.name} — ₹${i.price*i.qty}`).join('\n');
-  const msg=`🛒 *New Order — Sattu & Co.*\n\n${lines}\n\n*Total: ₹${total}*\n\nPlease confirm my order!`;
+  const msg=`🛒 *New Order — Sattu & Co.*\n\n${lines}\n\n📍 *Delivery details*\nPIN: ${delivery.pin}\nAddress: ${address}\nPhone: ${phone}\n\nSubtotal: ₹${subtotal}\nDelivery (${delivery.distance.toFixed(1)} km): ₹${delivery.fee}\n*Total: ₹${total}*\n\nPlease confirm my order!`;
   window.open('https://wa.me/'+WA+'?text='+encodeURIComponent(msg),'_blank');
 }
+updateTotals();
 </script>
 </body>
 </html>
